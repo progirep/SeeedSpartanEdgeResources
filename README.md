@@ -1,10 +1,10 @@
 # SeeedSpartanEdgeResources
 
-The [https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/ Seed Studio Spartan Edge Accelerator] is a nice little development board that combines an ESP32 microcontroller and a Xilinx Spartan-7 FPGA chip.
+The [Seed Studio Spartan Edge Accelerator](https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/) is a nice little development board that combines an ESP32 microcontroller and a Xilinx Spartan-7 FPGA chip.
 
 There are a few examples for programming the MCU and the FPGA available, but not many. In this repository, I'm documenting a few things that I did with this board.
 
-## [ESP32BitstreamLoader/ FPGA Bitstream from built-in flash loader]
+## [FPGA Bitstream from built-in flash loader](ESP32BitstreamLoader/)
 
 The example provided by Seeed Studio loads the bitstream for the FPGA from a connected Micro-SD card. This is one option, but requires frequent plugging operations with the micro SD card.
 

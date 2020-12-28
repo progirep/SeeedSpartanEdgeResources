@@ -10,7 +10,7 @@ The web interface also enables changing the WiFi password and has some rudimenta
 
 The FPGA Bit from flash loader is written in the Arduino framework.
 
-This loader has an undefined license as it bases on the [EDGE ESP32 Boot](https://github.com/Pillar1989/spartan-edge-esp32-boot Spartan ) library which does not have a defined license either.
+This loader has an undefined license as it bases on the [EDGE ESP32 Boot](https://github.com/Pillar1989/spartan-edge-esp32-boot) library which does not have a defined license either.
 
 ## Installation
 

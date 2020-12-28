@@ -29,6 +29,13 @@ The default Wifi Password is *Radius210*. You can change it by calling *http://1
 
 The currect password is always printed to the serial console (115200 Baud) during the start-up of the MCU.
 
+## Uploading the Bitstream via the serial port
+
+You can also upload the Bitstream via the serial port using *esptool*, suitable for automating this process. This works with the following command:
+
+    python /path/to/esptool_py/2.6.1/esptool.py --chip esp32 --port /dev/ttyPORT --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size detect 0x200000 bitstreamFile.bit
+    
+
 ## Notes
 
 This is quite a hacky project. For the Web-based uploader, the input file is split into 2 kB chunks in Javascript and these chunks are uploaded one-by-one. This is to enable the use of a very simple web server that does not understand the HTTP POST method. 

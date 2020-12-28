@@ -53,6 +53,8 @@ void fatal_error(const char *error) {
   while (1) {};
 }
 
+SPIClass vspi(VSPI);
+
 // the setup routine runs once when you press reset:
 void setup() {
   
@@ -93,10 +95,6 @@ void setup() {
   
   if (spi_flash_read(readPtr,byte_buff,1024)!=ESP_OK) fatal_error("Error reading bitstream");
   readPtr += 1024;
-  
-  
-
-  
   
   /* put pins down for Configuration */
   pinMode(XFPGA_CCLK_PIN, OUTPUT);
@@ -149,7 +147,7 @@ void setup() {
        Serial.print("Using the following Wifi password: ");
        Serial.println(password);
      } else {
-      strcpy(password,"1337xxor");
+      strcpy(password,"Radius210");
       Serial.println("Password not yet set! Using default password.");
      }
                 
@@ -173,9 +171,44 @@ void setup() {
     Serial.print(test);
     Serial.print("\n");
   }*/
+
+  // SPI
+  pinMode(SS, OUTPUT);
+  pinMode(SCK, OUTPUT);
+  pinMode(MOSI, OUTPUT);
+  pinMode(MISO, INPUT);
+  digitalWrite(SS, HIGH); 
+  vspi.begin (SCK, MISO, MOSI);
+  vspi.setBitOrder(MSBFIRST);
+  vspi.setDataMode(SPI_MODE0);
+  vspi.setClockDivider(SPI_CLOCK_DIV32); // Make it slow.
   
 }
 
+
+String getPartUntilSlash(String &residue, bool &term) {
+  int pos = 0;
+  String ret;
+  term = false;
+  while (pos<residue.length()) {
+    switch (residue[pos]) {
+      case ' ':
+      case '\n':
+        term = true;
+      case '/':
+        ret = residue.substring(0,pos);
+        residue = residue.substring(pos+1);
+        return ret;
+      default:
+        pos++;
+    }
+  }
+  ret = residue;
+  residue = "";
+  return ret;
+}
+
+  
 /*
  * Sources:
  * 
@@ -189,7 +222,7 @@ void loop() {
   
   WiFiClient client = server.available();   // Listen for incoming clients
 
-  String header;
+  String header = "\n";
   
   if (client) {                             // If a new client connects,
     //Serial.println("New Client.");          // print a message out in the serial port
@@ -204,30 +237,91 @@ void loop() {
           // if the current line is blank, you got two newline characters in a row.
           // that's the end of the client HTTP request, so send a response:
           if (currentLine.length() == 0) {
-            //Serial.write("Length 0\n");      
-            //Serial.write(header.c_str());
-            //Serial.write("\n");      
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            
-            // turns the GPIOs on and off
-            if (header.indexOf("GET /spi/") >= 0) {
 
-                SPIClass vspi;
-                vspi.begin();
-                vspi.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
-                digitalWrite(SS, LOW); 
-                int received = SPI.transfer(0xCA);
-                digitalWrite(SS, HIGH); 
-                vspi.endTransaction();
-              
+            // Checking!
+            if (header.indexOf("\nGET /teston/") >= 0) {
                 client.println("HTTP/1.1 200 OK");
                 client.println("Content-type:text/plain");
-                client.println("Connection: close");
-                client.println("\Writing/Sending");
-                char result[64];
-                snprintf(result,64,"Received byte: %d",received);
-                client.println(result);
+                client.println("Connection: close\n");
+                client.println("Writing/Sending:");
+                String signalName=header.substring(header.indexOf("\nGET /teston/")+13);
+                if (signalName.startsWith("ss")) {
+                    digitalWrite(SS, HIGH); 
+                    client.println("SS Signal");
+                } else if (signalName.startsWith("sck")) {
+                    digitalWrite(SCK, HIGH); 
+                    client.println("SCK Signal");
+                } else if (signalName.startsWith("mosi")) {
+                    digitalWrite(MOSI, HIGH); 
+                    client.println("MOSI Signal");
+                }
+                client.println("\n\n");
+                client.stop();
+                Serial.write("All done!\n");
+                return; // Main loop
+            }
+
+            else if (header.indexOf("\nGET /testoff/") >= 0) {
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/plain");
+                client.println("Connection: close\n");
+                client.println("Writing/Sending:");
+                String signalName=header.substring(header.indexOf("\nGET /testoff/")+14);
+                if (signalName.startsWith("ss")) {
+                    digitalWrite(SS, LOW); 
+                    client.println("SS Signal");
+                } else if (signalName.startsWith("sck")) {
+                    digitalWrite(SCK, LOW); 
+                    client.println("SCK Signal");
+                } else if (signalName.startsWith("mosi")) {
+                    digitalWrite(MOSI, LOW); 
+                    client.println("MOSI Signal");
+                }
+                client.println("\n\n");
+                client.stop();
+                Serial.write("All done!\n");
+                return; // Main loop
+            }
+            
+            // turns the GPIOs on and off
+            else if (header.indexOf("\nGET /spi/") >= 0) {
+
+                // Parse SPI
+                uint8_t inputData[64];
+                int nofInputChars = 0;
+                bool done = false;
+                String rest = header.substring(header.indexOf("\nGET /spi/")+10);
+                Serial.println("DEbug Data\n");
+                while (!done) {
+                  String part = getPartUntilSlash(rest,done);
+                  Serial.println("Get Part\n");
+                  Serial.println(part.c_str());
+                  if (part!="") {
+                    inputData[nofInputChars++] = part.toInt();
+                  }
+                }
+
+                Serial.println("Client data core\n");
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/plain");
+                client.println("Connection: close\n");
+                client.println("Writing/Sending:");
+                
+                digitalWrite(SS, LOW); 
+                for (int i=0;i<nofInputChars;i++) {
+                  int received = vspi.transfer(inputData[i]);
+                  char result[64];
+                  snprintf(result,64,"- %d / %d",(int)(inputData[i]),received);
+                  client.println(result);
+                  Serial.println("Send/Receive Byte");
+                }
+                
+                digitalWrite(SS, HIGH); 
+                
+                // Debug...
+                client.println(String(vspi.getClockDivider())+" is the clock divider.\n");
+                client.println(String((uint32_t)(vspi.bus()))+" is the bus.\n");
+              
                 client.println("\n\n");
                 client.stop();
                 Serial.write("All done!\n");
@@ -404,43 +498,7 @@ void loop() {
               client.println("Connection: close");
               client.println();
   
-              /*
-              client.println("<!DOCTYPE html><html>");
-              client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-              client.println("<link rel=\"icon\" href=\"data:,\">");
-              // CSS to style the on/off buttons 
-              // Feel free to change the background-color and font-size attributes to fit your preferences
-              client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-              client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
-              client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-              client.println(".button2 {background-color: #555555;}</style></head>");*/
-  
               
-              /*
-              // Web Page Heading
-              client.println("<body><h1>ESP32 Web Server</h1>");
-              
-              // Display current state, and ON/OFF buttons for GPIO 26  
-              client.println("<p>GPIO 26 - State </p>");
-              // If the output26State is off, it displays the ON button       
-              {
-                client.println("<p><a href=\"/26/off\"><button class=\"button button2\">OFF</button></a></p>");
-              } 
-                 
-              // Display current state, and ON/OFF buttons for GPIO 27  
-              client.println("<p>GPIO 27 - State </p>");
-              // If the output27State is off, it displays the ON button       
-              {
-                client.println("<p><a href=\"/27/off\"><button class=\"button button2\">OFF</button></a></p>");
-              }
-  
-              // Upload file
-              client.println("<form method=\"post\" enctype=\"multipart/form-data\">")
-              client.println("<input type=\"file\" name=\"name\">")
-              client.println("<input class=\"button\" type=\"submit\" value=\"Upload\"></form>")
-              
-              client.println("</body></html>"); */
-  
               client.println("<!DOCTYPE HTML>\n<html>\n<head>");
               client.println("<title>FPGA Board Access</title>\n</head>");
               client.println("<body>");

@@ -40,6 +40,7 @@ test test_instance(
  
 
 spiSlave spi_instance(
+    .sys_clk(sys_clk),
     .FPGA_QSPI_CLK(FPGA_QSPI_CLK),
     .FPGA_QSPI_CS(FPGA_QSPI_CS),
     .FPGA_QSPI_D(FPGA_QSPI_D),

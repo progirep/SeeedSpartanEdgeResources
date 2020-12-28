@@ -21,6 +21,7 @@
 
 
 module spiSlave(
+    input sys_clk,
     input FPGA_QSPI_CLK,
     input FPGA_QSPI_CS,
     input FPGA_QSPI_D,
@@ -30,19 +31,47 @@ module spiSlave(
     
 reg [8:0] shift_r;
 assign FPGA_QSPI_Q = shift_r[8];
-// assign led2 = FPGA_QSPI_CS  ^ FPGA_QSPI_CLK ^ FPGA_QSPI_D;
 
 initial
     led2 <= 0;
+
+// Sync Clocks
+reg sclk;
+reg scs;
+reg smosi;
+reg oldcs;
+reg oldclk;
+
+always @(posedge sys_clk) begin
+    oldclk <= sclk;
+    sclk <= FPGA_QSPI_CLK;
+end
+
+always @(posedge sys_clk) begin
+    oldcs <= scs;
+    scs <= FPGA_QSPI_CS;
+end
+
+always @(posedge sys_clk) begin
+    smosi = FPGA_QSPI_D;
+end
+
+initial
+    oldcs <= 1;
+
     
-always @(posedge FPGA_QSPI_CLK) begin
-    led2 <= 1;
-    if (!FPGA_QSPI_CS) begin
-        shift_r <= shift_r << 1;
-        shift_r[0] <= FPGA_QSPI_D;
-        // led2 <= shift_r[3];
+always @(posedge sys_clk) begin
+    if (!oldcs & scs) begin
+        shift_r <= shift_r*3;
+    end else begin 
+        if (!oldclk & sclk) begin
+            shift_r <= shift_r << 1;
+            shift_r[0] <= FPGA_QSPI_D;
+        end
     end
 end
+
+
   
     
 endmodule

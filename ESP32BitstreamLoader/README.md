@@ -1,6 +1,6 @@
 # FPGA Bitstream from built-in flash loader
 
-This is a small Arduino project for the ESP32 MCU on the https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/ Seed Studio Spartan Edge Accelerator].
+This is a small Arduino project for the ESP32 MCU on the [Seed Studio Spartan Edge Accelerator](https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/).
 
 It reads the bitsteam in the second half of the Flash memory chip connected to the MCU. Since it has 100k write cycles endurance (according to the manufacturer), even frequent rewriting of that part of the flash should not be a problem. The micro SD card is then not needed any more.
 
@@ -10,12 +10,12 @@ The web interface also enables changing the WiFi password and has some rudimenta
 
 The FPGA Bit from flash loader is written in the Arduino framework.
 
-This loader has an undefined license as it bases on the [https://github.com/Pillar1989/spartan-edge-esp32-boot Spartan EDGE ESP32 Boot] library which does not have a defined license either.
+This loader has an undefined license as it bases on the [EDGE ESP32 Boot](https://github.com/Pillar1989/spartan-edge-esp32-boot Spartan ) library which does not have a defined license either.
 
 ## Installation
 
 1. Install the Arduino IDE
-2. Install the ESP32 support for the Arduino IDE (described [https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/ here]
+2. Install the ESP32 support for the Arduino IDE (described [here](https://wiki.seeedstudio.com/Spartan-Edge-Accelerator-Board/))
 3. Select tool->board->DOIT ESP32 DEVKIT
 4. Connect board and select the correct USB/Serial device for uploading
 5. Compile the attached Arduino sketch and upload it (hit CTRL+U after loading the sketch)

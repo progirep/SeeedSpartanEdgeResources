@@ -181,8 +181,18 @@ void setup() {
   vspi.begin (SCK, MISO, MOSI);
   vspi.setBitOrder(MSBFIRST);
   vspi.setDataMode(SPI_MODE0);
-  vspi.setClockDivider(SPI_CLOCK_DIV32); // Make it slow.
+
+  // Clock Diver Values figured out by inspecting spiClk_t from https://github.com/espressif/arduino-esp32/blob/master/cores/esp32/esp32-hal-spi.c
+  // Good source: https://www.esp8266.com/viewtopic.php?p=13958
+  //vspi.setClockDivider(1052673); // 8.0 Mhz ----> Works fine!
+  //vspi.setClockDivider(790529); // 10 MHz  ----> Gives Transmission errors!!!
+  //vspi.setClockDivider(28871); // different config for 10 Mhz  ----> Also Gives Transmission errors!!!
+  //vspi.setClockDivider(32968); // 8.88888 MHz <--- Gives a few errors. May work with a FPGA core speed >100 MHz?
+  // vspi.setClockDivider(37129); // 8 MHz, alternative encoding without prescaler
+  // 33032 and 28935 also work, 24774 gives transmission errors, 24838 also works (7 clock cycles!), 20741 works as well (6 clock cycles).
+  vspi.setClockDivider(20741); // LOW: 5, HIGH:4, N: 5, Prescaler = 0 ---> 80/6 MHz clock rate
   
+
 }
 
 
@@ -282,8 +292,31 @@ void loop() {
                 Serial.write("All done!\n");
                 return; // Main loop
             }
+
+            // SPI configuration
+            else if (header.indexOf("\nGET /spispeed/") >= 0) {
+              String rest = header.substring(header.indexOf("\nGET /spispeed/")+15);
+              Serial.println("Setting SPI Speed\n");
+              bool done;
+              String part = getPartUntilSlash(rest,done);
+              int speed = part.toInt();
+
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:text/plain");
+              client.println("Connection: close\n");
+              client.println("Setting SPI clock divider to:");
+              client.println(speed);
+              vspi.setClockDivider(speed);
+              if (!done)
+                client.println("Warning: Not quite well-formed request.");
+              client.println("\n\n");
+              client.stop();
+              Serial.write("All done!\n");
+              return; // Main loop
+              
+            }
             
-            // turns the GPIOs on and off
+            // SPI transmission
             else if (header.indexOf("\nGET /spi/") >= 0) {
 
                 // Parse SPI

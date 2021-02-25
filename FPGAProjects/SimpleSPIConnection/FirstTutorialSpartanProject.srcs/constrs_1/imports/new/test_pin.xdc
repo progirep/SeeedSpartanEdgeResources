@@ -44,5 +44,5 @@ set_property IOSTANDARD LVCMOS33 [get_ports FPGA_QSPI_WP]
 set_property SLEW FAST [get_ports FPGA_QSPI_Q]
 
 set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets {FPGA_QSPI_CLK_IBUF}]
-set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets {led2_OBUF}]
+# set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets {led2_OBUF}]
 

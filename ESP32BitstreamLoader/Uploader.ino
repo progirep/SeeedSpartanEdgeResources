@@ -1,11 +1,11 @@
 /*
- * 01LoadDefaultBitstream
- *  
- * loading the default Bitstream
- *
- * The MIT License (MIT)
- * Copyright (C) 2019  Seeed Technology Co.,Ltd.
- */
+   01LoadDefaultBitstream
+
+   loading the default Bitstream
+
+   The MIT License (MIT)
+   Copyright (C) 2019  Seeed Technology Co.,Ltd.
+*/
 
 // include the library:
 // #include <spartan-edge-esp32-boot.h>
@@ -13,6 +13,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <rom/ets_sys.h>
 
 /* pin define */
 #define XFPGA_CCLK_PIN 17
@@ -53,12 +54,75 @@ void fatal_error(const char *error) {
   while (1) {};
 }
 
+// Wifi Scan
+// Based on: https://maelpoureau.com/ESP8266_channel_chooser/ but with heavy modifications
+byte channel_chooser() {
+  int scan_result = WiFi.scanNetworks(false, true);
+  
+  // int scan_result = WiFi.scanComplete();
+  Serial.print("Wifi Scan result:");
+  Serial.print(scan_result);
+  Serial.print("\n");
+
+  if (scan_result < 0) {       //  if not scanning return 255 and launch scan
+    Serial.print("Wifi Scan failure.");
+    return 1; // Channel 1
+
+  } else if (scan_result == 0) { // return Channel 1 if no network is found.
+    return 1;
+  } else {
+
+    // Channel Usage
+    int channels[13];
+
+    for (byte a = 0; a < 13; a++) {
+      channels[a] = 0;
+    }
+
+    for (byte a = 0; a < scan_result; a++) {
+      int channel = WiFi.channel(a)-1;
+      int strength = 100 + WiFi.RSSI(a);
+      channels[channel] += strength; // Simplification..
+      
+      // Data Core
+      if (channel>=1) channels[channel-1] += strength/2;
+      if (channel>=2) channels[channel-2] += strength/4;
+      if (channel<=11) channels[channel+1] += strength/2;
+      if (channel<=10) channels[channel+2] += strength/4;
+    }
+
+    // print the sorted results
+
+    for (byte a = 1; a < 14; a++) {
+      Serial.print(a);
+      Serial.print(" - ");
+      Serial.println(channels[a-1]);
+    }
+
+    WiFi.scanDelete();
+
+    // Channel return
+    if (channels[0]<channels[5]) {
+      if (channels[0]<channels[10])
+        return 1;
+      else
+        return 11;
+    } else {
+      if (channels[5]<channels[10])
+        return 6;
+      else
+        return 11;
+    }
+  }
+}
+
+
 SPIClass vspi(VSPI);
 
 // the setup routine runs once when you press reset:
 void setup() {
-  
-  // initialization 
+
+  // initialization
   //esp32Cla.begin();
 
   // XFPGA pin Initialize
@@ -88,27 +152,27 @@ void setup() {
 
 
   unsigned char byte_buff[1024];
-  int bytes_left = 4310752/8;
+  int bytes_left = 4310752 / 8;
   int buffer_pos = 100;
   uint32_t readPtr = START_ADDRESS_FPGA_PROGRAM;
-  int bitstream_length = 4310752/8;
-  
-  if (spi_flash_read(readPtr,byte_buff,1024)!=ESP_OK) fatal_error("Error reading bitstream");
+  int bitstream_length = 4310752 / 8;
+
+  if (spi_flash_read(readPtr, byte_buff, 1024) != ESP_OK) fatal_error("Error reading bitstream");
   readPtr += 1024;
-  
+
   /* put pins down for Configuration */
   pinMode(XFPGA_CCLK_PIN, OUTPUT);
   pinMode(XFPGA_DIN_PIN, OUTPUT);
   digitalWrite(XFPGA_CCLK_PIN, LOW);
   digitalWrite(XFPGA_DIN_PIN, LOW);
 
-  while (bytes_left>0) {
-    while ((buffer_pos<1024) && (bytes_left>0)) {
+  while (bytes_left > 0) {
+    while ((buffer_pos < 1024) && (bytes_left > 0)) {
       byte tb = byte_buff[buffer_pos++];
 
-      for (int j = 0;j < 8;j++) {
+      for (int j = 0; j < 8; j++) {
         digitalWrite(XFPGA_CCLK_PIN, LOW);
-        if ((tb&0x80) == 0x80)
+        if ((tb & 0x80) == 0x80)
           digitalWrite(XFPGA_DIN_PIN, HIGH);
         else
           digitalWrite(XFPGA_DIN_PIN, LOW);
@@ -117,67 +181,70 @@ void setup() {
       }
       bytes_left--;
     }
-    if (bytes_left==0) break;
-    if (spi_flash_read(readPtr,byte_buff,1024)!=ESP_OK) fatal_error("Error reading bitstream");
+    if (bytes_left == 0) break;
+    if (spi_flash_read(readPtr, byte_buff, 1024) != ESP_OK) fatal_error("Error reading bitstream");
     readPtr += 1024;
-    buffer_pos=0;
+    buffer_pos = 0;
   }
-  digitalWrite(XFPGA_CCLK_PIN, LOW); 
+  digitalWrite(XFPGA_CCLK_PIN, LOW);
 
   // Test if writing worked?
   pinMode(XFPGA_DONE_PIN, INPUT);
-  if(0 == digitalRead(XFPGA_DONE_PIN)) {
-    snprintf(statusString,64,"Failed to configure FPGA");
+  if (0 == digitalRead(XFPGA_DONE_PIN)) {
+    snprintf(statusString, 64, "Failed to configure FPGA");
     Serial.println(statusString);
   }
   else {
-    snprintf(statusString,64,"FPGA Successfully configured");
+    snprintf(statusString, 64, "FPGA Successfully configured");
     Serial.println(statusString);
   }
 
-  
+  // Get best channel
+  Serial.print("Checking which channels are best.");
+  int best_channel = channel_chooser();
+
   Serial.print("Setting AP (Access Point)...");
 
   // Read password
   spi_flash_read(START_ADDRESS_WIFI_PASSWD, (uint32_t *)password, 64);
   if ((password[60] == 0xBA) &&
-     (password[61] == 0xDE) &&
-     (password[62] == 0xAF) &&
-     (password[63] == 0xFE)) {
-       Serial.print("Using the following Wifi password: ");
-       Serial.println(password);
-     } else {
-      strcpy(password,"Radius210");
-      Serial.println("Password not yet set! Using default password.");
-     }
-                
+      (password[61] == 0xDE) &&
+      (password[62] == 0xAF) &&
+      (password[63] == 0xFE)) {
+    Serial.print("Using the following Wifi password: ");
+    Serial.println(password);
+  } else {
+    strcpy(password, "Radius210");
+    Serial.println("Password not yet set! Using default password.");
+  }
+
 
   String mac = WiFi.macAddress();
-  snprintf(ssid,256,"FPGA-%s",mac.c_str());
-  
-  WiFi.softAP(ssid, password);
+  snprintf(ssid, 256, "FPGA-%s", mac.c_str());
+
+  WiFi.softAP(ssid, password, best_channel);
 
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
-  
+
   server.begin();
 
   /*char test[1024];
-  if (spi_flash_read(START_ADDRESS_FPGA_PROGRAM,test,1024)!=ESP_OK) {
+    if (spi_flash_read(START_ADDRESS_FPGA_PROGRAM,test,1024)!=ESP_OK) {
     Serial.print("Failure to read flash\n");
-  } else {
+    } else {
     Serial.print("Flash read correctly!\n");
     Serial.print(test);
     Serial.print("\n");
-  }*/
+    }*/
 
   // SPI
   pinMode(SS, OUTPUT);
   pinMode(SCK, OUTPUT);
   pinMode(MOSI, OUTPUT);
   pinMode(MISO, INPUT);
-  digitalWrite(SS, HIGH); 
+  digitalWrite(SS, HIGH);
   vspi.begin (SCK, MISO, MOSI);
   vspi.setBitOrder(MSBFIRST);
   vspi.setDataMode(SPI_MODE0);
@@ -191,7 +258,7 @@ void setup() {
   // vspi.setClockDivider(37129); // 8 MHz, alternative encoding without prescaler
   // 33032 and 28935 also work, 24774 gives transmission errors, 24838 also works (7 clock cycles!), 20741 works as well (6 clock cycles).
   vspi.setClockDivider(20741); // LOW: 5, HIGH:4, N: 5, Prescaler = 0 ---> 80/6 MHz clock rate
-  
+
 
 }
 
@@ -200,14 +267,14 @@ String getPartUntilSlash(String &residue, bool &term) {
   int pos = 0;
   String ret;
   term = false;
-  while (pos<residue.length()) {
+  while (pos < residue.length()) {
     switch (residue[pos]) {
       case ' ':
       case '\n':
         term = true;
       case '/':
-        ret = residue.substring(0,pos);
-        residue = residue.substring(pos+1);
+        ret = residue.substring(0, pos);
+        residue = residue.substring(pos + 1);
         return ret;
       default:
         pos++;
@@ -218,22 +285,22 @@ String getPartUntilSlash(String &residue, bool &term) {
   return ret;
 }
 
-  
+
 /*
- * Sources:
- * 
- * - Examples by Seeed Studio
- * - https://randomnerdtutorials.com/esp32-access-point-ap-web-server/
- * - http://www.journeyintocode.com/2013/11/reading-binary-data-with-file-api-and.html
- */
+   Sources:
+
+   - Examples by Seeed Studio
+   - https://randomnerdtutorials.com/esp32-access-point-ap-web-server/
+   - http://www.journeyintocode.com/2013/11/reading-binary-data-with-file-api-and.html
+*/
 
 // the loop routine runs over and over again forever:
 void loop() {
-  
+
   WiFiClient client = server.available();   // Listen for incoming clients
 
   String header = "\n";
-  
+
   if (client) {                             // If a new client connects,
     //Serial.println("New Client.");          // print a message out in the serial port
     String currentLine = "";                // make a String to hold incoming data from the client
@@ -243,62 +310,136 @@ void loop() {
         //Serial.write(c);                    // print it out the serial monitor
         header += c;
         if (c == '\n') {                    // if the byte is a newline character
-          //Serial.write("Checking now!");      
+          //Serial.write("Checking now!");
           // if the current line is blank, you got two newline characters in a row.
           // that's the end of the client HTTP request, so send a response:
           if (currentLine.length() == 0) {
 
             // Checking!
             if (header.indexOf("\nGET /teston/") >= 0) {
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/plain");
-                client.println("Connection: close\n");
-                client.println("Writing/Sending:");
-                String signalName=header.substring(header.indexOf("\nGET /teston/")+13);
-                if (signalName.startsWith("ss")) {
-                    digitalWrite(SS, HIGH); 
-                    client.println("SS Signal");
-                } else if (signalName.startsWith("sck")) {
-                    digitalWrite(SCK, HIGH); 
-                    client.println("SCK Signal");
-                } else if (signalName.startsWith("mosi")) {
-                    digitalWrite(MOSI, HIGH); 
-                    client.println("MOSI Signal");
-                }
-                client.println("\n\n");
-                client.stop();
-                Serial.write("All done!\n");
-                return; // Main loop
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:text/plain");
+              client.println("Connection: close\n");
+              client.println("Writing/Sending:");
+              String signalName = header.substring(header.indexOf("\nGET /teston/") + 13);
+              if (signalName.startsWith("ss")) {
+                digitalWrite(SS, HIGH);
+                client.println("SS Signal");
+              } else if (signalName.startsWith("sck")) {
+                digitalWrite(SCK, HIGH);
+                client.println("SCK Signal");
+              } else if (signalName.startsWith("mosi")) {
+                digitalWrite(MOSI, HIGH);
+                client.println("MOSI Signal");
+              }
+              client.println("\n\n");
+              client.stop();
+              Serial.write("All done!\n");
+              return; // Main loop
             }
 
             else if (header.indexOf("\nGET /testoff/") >= 0) {
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/plain");
-                client.println("Connection: close\n");
-                client.println("Writing/Sending:");
-                String signalName=header.substring(header.indexOf("\nGET /testoff/")+14);
-                if (signalName.startsWith("ss")) {
-                    digitalWrite(SS, LOW); 
-                    client.println("SS Signal");
-                } else if (signalName.startsWith("sck")) {
-                    digitalWrite(SCK, LOW); 
-                    client.println("SCK Signal");
-                } else if (signalName.startsWith("mosi")) {
-                    digitalWrite(MOSI, LOW); 
-                    client.println("MOSI Signal");
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:text/plain");
+              client.println("Connection: close\n");
+              client.println("Writing/Sending:");
+              String signalName = header.substring(header.indexOf("\nGET /testoff/") + 14);
+              if (signalName.startsWith("ss")) {
+                digitalWrite(SS, LOW);
+                client.println("SS Signal");
+              } else if (signalName.startsWith("sck")) {
+                digitalWrite(SCK, LOW);
+                client.println("SCK Signal");
+              } else if (signalName.startsWith("mosi")) {
+                digitalWrite(MOSI, LOW);
+                client.println("MOSI Signal");
+              }
+              client.println("\n\n");
+              client.stop();
+              Serial.write("All done!\n");
+              return; // Main loop
+            }
+
+            else if (header.indexOf("\nGET /fulltransmissionexperiments/") >= 0) {
+
+              uint8_t bufferA[4097];
+
+              // Empty buffer on the FPGA
+              digitalWrite(SS, LOW);
+              bufferA[0] = 22;
+              for (int i = 0; i < 4097; i++) {
+                uint8_t received = vspi.transfer(bufferA[i]);
+                bufferA[i] = received;
+              }
+              digitalWrite(SS, HIGH);
+
+              ets_delay_us(3);
+
+              // Switch off line
+              bufferA[0] = 20;
+              bufferA[1] = 255;
+              digitalWrite(SS, LOW);
+              for (int i = 0; i < 2; i++) {
+                int received = vspi.transfer(bufferA[i]);
+              }
+
+              digitalWrite(SS, HIGH);
+              ets_delay_us(3);
+
+              // Do the measurements now
+              Serial.println("Client data core2\n");
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:application/octet-stream");
+              client.println("Connection: close\n");
+
+              for (unsigned int i = 0; i < 65536; i++) {
+
+                // Trigger measurement
+                digitalWrite(SS, LOW);
+                bufferA[0] = 30;
+                bufferA[1] = 00;
+                for (int i = 0; i < 2; i++) {
+                  uint8_t received = vspi.transfer(bufferA[i]);
+                  bufferA[i] = received;
                 }
-                client.println("\n\n");
-                client.stop();
-                Serial.write("All done!\n");
-                return; // Main loop
+                digitalWrite(SS, HIGH);
+                ets_delay_us(1000);
+
+                // Switch off activation signal
+                digitalWrite(SS, LOW);
+                bufferA[0] = 20;
+                bufferA[1] = 255;
+                for (int i = 0; i < 2; i++) {
+                  uint8_t received = vspi.transfer(bufferA[i]);
+                  bufferA[i] = received;
+                }
+                digitalWrite(SS, HIGH);
+                ets_delay_us(3);
+
+                // Receive data
+                digitalWrite(SS, LOW);
+                bufferA[0] = 22;
+                for (int i = 0; i < 4097; i++) {
+                  uint8_t received = vspi.transfer(bufferA[i]);
+                  bufferA[i] = received;
+                }
+                digitalWrite(SS, HIGH);
+                client.write(&(bufferA[1]), 512);
+
+              }
+              client.stop();
+
+
+              Serial.write("All done!\n");
+              return; // Main loop
             }
 
             // SPI configuration
             else if (header.indexOf("\nGET /spispeed/") >= 0) {
-              String rest = header.substring(header.indexOf("\nGET /spispeed/")+15);
+              String rest = header.substring(header.indexOf("\nGET /spispeed/") + 15);
               Serial.println("Setting SPI Speed\n");
               bool done;
-              String part = getPartUntilSlash(rest,done);
+              String part = getPartUntilSlash(rest, done);
               int speed = part.toInt();
 
               client.println("HTTP/1.1 200 OK");
@@ -313,62 +454,88 @@ void loop() {
               client.stop();
               Serial.write("All done!\n");
               return; // Main loop
-              
+
             }
-            
+
+            // SPI transmission
+            else if (header.indexOf("\nGET /spi4k22/") >= 0) {
+
+              Serial.println("Client data core\n");
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:application/octet-stream");
+              client.println("Connection: close\n");
+
+              digitalWrite(SS, LOW);
+
+              uint8_t inputData[4097];
+              inputData[0] = 22;
+              for (int i = 0; i < 4097; i++) {
+                uint8_t received = vspi.transfer(inputData[i]);
+                inputData[i] = received;
+              }
+              digitalWrite(SS, HIGH);
+
+              client.write(&(inputData[1]), 4096);
+              client.stop();
+              char buf[256];
+              snprintf(buf, 256, "All done First byte: %d !\n", inputData[1]);
+              Serial.write(buf);
+              return; // Main loop
+            }
+
             // SPI transmission
             else if (header.indexOf("\nGET /spi/") >= 0) {
 
-                // Parse SPI
-                uint8_t inputData[64];
-                int nofInputChars = 0;
-                bool done = false;
-                String rest = header.substring(header.indexOf("\nGET /spi/")+10);
-                Serial.println("DEbug Data\n");
-                while (!done) {
-                  String part = getPartUntilSlash(rest,done);
-                  Serial.println("Get Part\n");
-                  Serial.println(part.c_str());
-                  if (part!="") {
-                    inputData[nofInputChars++] = part.toInt();
-                  }
+              // Parse SPI
+              uint8_t inputData[64];
+              int nofInputChars = 0;
+              bool done = false;
+              String rest = header.substring(header.indexOf("\nGET /spi/") + 10);
+              Serial.println("DEbug Data\n");
+              while (!done) {
+                String part = getPartUntilSlash(rest, done);
+                Serial.println("Get Part\n");
+                Serial.println(part.c_str());
+                if (part != "") {
+                  inputData[nofInputChars++] = part.toInt();
                 }
+              }
 
-                Serial.println("Client data core\n");
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/plain");
-                client.println("Connection: close\n");
-                client.println("Writing/Sending:");
-                
-                digitalWrite(SS, LOW); 
-                for (int i=0;i<nofInputChars;i++) {
-                  int received = vspi.transfer(inputData[i]);
-                  char result[64];
-                  snprintf(result,64,"- %d / %d",(int)(inputData[i]),received);
-                  client.println(result);
-                  Serial.println("Send/Receive Byte");
-                }
-                
-                digitalWrite(SS, HIGH); 
-                
-                // Debug...
-                client.println(String(vspi.getClockDivider())+" is the clock divider.\n");
-                client.println(String((uint32_t)(vspi.bus()))+" is the bus.\n");
-              
-                client.println("\n\n");
-                client.stop();
-                Serial.write("All done!\n");
-                return; // Main loop
+              Serial.println("Client data core\n");
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:text/plain");
+              client.println("Connection: close\n");
+              client.println("Writing/Sending:");
+
+              digitalWrite(SS, LOW);
+              for (int i = 0; i < nofInputChars; i++) {
+                int received = vspi.transfer(inputData[i]);
+                char result[64];
+                snprintf(result, 64, "- %d / %d", (int)(inputData[i]), received);
+                client.println(result);
+                Serial.println("Send/Receive Byte");
+              }
+
+              digitalWrite(SS, HIGH);
+
+              // Debug...
+              client.println(String(vspi.getClockDivider()) + " is the clock divider.\n");
+              client.println(String((uint32_t)(vspi.bus())) + " is the bus.\n");
+
+              client.println("\n\n");
+              client.stop();
+              Serial.write("All done!\n");
+              return; // Main loop
             }
-            
+
             else if (header.indexOf("GET /passwd/") >= 0) {
-              int locStr = header.indexOf("GET /passwd/")+12;
+              int locStr = header.indexOf("GET /passwd/") + 12;
               char pw[64];
               int writeAddress = 0;
-              while ((header[locStr]!=' ') && (header[locStr]!='\n')) {
+              while ((header[locStr] != ' ') && (header[locStr] != '\n')) {
                 pw[writeAddress++] = header[locStr++];
               }
-              if ((writeAddress>=10) && (writeAddress<=50)) {
+              if ((writeAddress >= 10) && (writeAddress <= 50)) {
                 pw[writeAddress++] = 0;
 
                 // Add signature
@@ -376,7 +543,7 @@ void loop() {
                 pw[61] = 0xDE;
                 pw[62] = 0xAF;
                 pw[63] = 0xFE;
-                
+
                 Serial.println("Resetting password to:");
                 Serial.println(pw);
                 Serial.println("writing now...");
@@ -392,35 +559,35 @@ void loop() {
                 client.stop();
                 Serial.write("All done!\n");
                 return; // Main loop
-                }
+              }
 
               //3.spi_flash_read(0x3C000, (uint32_t *)buff, 64);
 
-                
+
               client.println("HTTP/1.1 403 Access Denied!");
               client.println("Content-type:text/text");
               client.println("Connection: close");
               client.println("\nPassword reset wrong: Between 10 and 50 characters wanted\n\n");
               client.stop();
               return; // Main loop
-              
+
             } else if (header.indexOf("GET /upload/") >= 0) {
               //Serial.println("Received (Upload):");
               //Serial.println(header.c_str());
-              
+
               // Parsing location
-              int locStr = header.indexOf("GET /upload/")+12;
+              int locStr = header.indexOf("GET /upload/") + 12;
               int writeAddress = 0;
-              while (header[locStr]!='/') {
+              while (header[locStr] != '/') {
                 writeAddress *= 10;
-                if ((header[locStr]>='0') && (header[locStr]<='9')) writeAddress += header[locStr] - '0';
+                if ((header[locStr] >= '0') && (header[locStr] <= '9')) writeAddress += header[locStr] - '0';
                 else {
                   client.println("HTTP/1.1 403 Access Denied!");
                   client.println("Content-type:text/html");
                   client.println("Connection: close");
                   client.println("\nMalformed upload...\n\n");
                   client.stop();
-                  return; // This is loop...                 
+                  return; // This is loop...
                 }
                 locStr++;
               }
@@ -432,10 +599,10 @@ void loop() {
               int writePtr = 0;
 
               // Parsing data
-              while ((header[locStr]!=' ') && (header[locStr]!='\n')) {
+              while ((header[locStr] != ' ') && (header[locStr] != '\n')) {
                 uint8_t thisByte = 0;
 
-                if (writePtr>=2048) {
+                if (writePtr >= 2048) {
                   client.println("HTTP/1.1 403 Access Denied!");
                   client.println("Content-type:text/html");
                   client.println("Connection: close");
@@ -443,29 +610,29 @@ void loop() {
                   client.stop();
                   return; // Main loop
                 }
-                
-                if ((header[locStr]>='0') && (header[locStr]<='9')) thisByte = (header[locStr] - '0')*16;
-                else if ((header[locStr]>='a') && (header[locStr]<='f')) thisByte = (header[locStr] - 'a' + 10)*16;
+
+                if ((header[locStr] >= '0') && (header[locStr] <= '9')) thisByte = (header[locStr] - '0') * 16;
+                else if ((header[locStr] >= 'a') && (header[locStr] <= 'f')) thisByte = (header[locStr] - 'a' + 10) * 16;
                 else {
                   client.println("HTTP/1.1 403 Access Denied!");
                   client.println("Content-type:text/html");
                   client.println("Connection: close");
                   client.println("\nMalformed upload (A)...\n\n");
                   client.stop();
-                  return; // This is loop...                 
+                  return; // This is loop...
                 }
 
                 locStr++;
 
-                if ((header[locStr]>='0') && (header[locStr]<='9')) thisByte += (header[locStr] - '0');
-                else if ((header[locStr]>='a') && (header[locStr]<='f')) thisByte += (header[locStr] - 'a' + 10);
+                if ((header[locStr] >= '0') && (header[locStr] <= '9')) thisByte += (header[locStr] - '0');
+                else if ((header[locStr] >= 'a') && (header[locStr] <= 'f')) thisByte += (header[locStr] - 'a' + 10);
                 else {
                   client.println("HTTP/1.1 403 Access Denied!");
                   client.println("Content-type:text/html");
                   client.println("Connection: close");
                   client.println("\nMalformed upload (B)...\n\n");
                   client.stop();
-                  return; // This is loop...                 
+                  return; // This is loop...
                 }
 
                 locStr++;
@@ -474,43 +641,43 @@ void loop() {
               }
 
               //Serial.write("Wrote to write buffer\n");
-              
+
               // Fill with 0s until 32-bit aligned
               while (writePtr & 3) writeBuffer[writePtr++] = 0;
 
-              if (writePtr>2048) {
-                  client.println("HTTP/1.1 403 Access Denied!");
-                  client.println("Content-type:text/html");
-                  client.println("Connection: close");
-                  client.println("\nData too long (B)...\n\n");
-                  client.stop();
-                  return; // Main loop
-                }
+              if (writePtr > 2048) {
+                client.println("HTTP/1.1 403 Access Denied!");
+                client.println("Content-type:text/html");
+                client.println("Connection: close");
+                client.println("\nData too long (B)...\n\n");
+                client.stop();
+                return; // Main loop
+              }
 
               // Address sanity check
-              int32_t writePos = START_ADDRESS_FPGA_PROGRAM+writeAddress;
-              if ((writePos<0) || (writePos<writeAddress) ||  ((START_ADDRESS_FPGA_PROGRAM+writeAddress+writePtr) < 0)) {
-                  client.println("HTTP/1.1 403 Access Denied!");
-                  client.println("Content-type:text/html");
-                  client.println("Connection: close");
-                  client.println("\nAddress is not ok...\n\n");
-                  client.stop();
-                  return; // Main loop
+              int32_t writePos = START_ADDRESS_FPGA_PROGRAM + writeAddress;
+              if ((writePos < 0) || (writePos < writeAddress) ||  ((START_ADDRESS_FPGA_PROGRAM + writeAddress + writePtr) < 0)) {
+                client.println("HTTP/1.1 403 Access Denied!");
+                client.println("Content-type:text/html");
+                client.println("Connection: close");
+                client.println("\nAddress is not ok...\n\n");
+                client.stop();
+                return; // Main loop
               }
 
               // Delete if needed
-              if ((writeAddress % SPI_FLASH_SEC_SIZE)==0) {
-                spi_flash_erase_sector((START_ADDRESS_FPGA_PROGRAM+writeAddress) / SPI_FLASH_SEC_SIZE);
+              if ((writeAddress % SPI_FLASH_SEC_SIZE) == 0) {
+                spi_flash_erase_sector((START_ADDRESS_FPGA_PROGRAM + writeAddress) / SPI_FLASH_SEC_SIZE);
               }
 
               //Serial.write("Flash erase done!\n");
-              
 
-              spi_flash_write(START_ADDRESS_FPGA_PROGRAM+writeAddress, (uint32_t *)writeBuffer, writePtr);
+
+              spi_flash_write(START_ADDRESS_FPGA_PROGRAM + writeAddress, (uint32_t *)writeBuffer, writePtr);
               //3.spi_flash_read(0x3C000, (uint32_t *)buff, 64);
 
               //Serial.write("Flash Write done!\n");
-              
+
 
 
               client.println("HTTP/1.1 200 OK");
@@ -519,19 +686,19 @@ void loop() {
               client.println("\nUpload received...\n\n");
 
 
-              
+
               break;
             } else if ((header.indexOf("GET / ") >= 0) || (header.indexOf("GET /\n") >= 0)) {
-              
-              
+
+
               // Display the HTML web page
-              //Serial.write("Main Page\n");      
+              //Serial.write("Main Page\n");
               client.println("HTTP/1.1 200 OK");
               client.println("Content-type:text/html");
               client.println("Connection: close");
               client.println();
-  
-              
+
+
               client.println("<!DOCTYPE HTML>\n<html>\n<head>");
               client.println("<title>FPGA Board Access</title>\n</head>");
               client.println("<body>");
@@ -541,8 +708,8 @@ void loop() {
               client.println("</p>");
               client.println("<input id=\"browseOpen\" type=\"file\"/>");
               client.println("<script type=\"text/javascript\">\r\n            var fileInput = document.getElementById(\"browseOpen\");\r\n            fileInput.onchange = function () {            \r\n                var fr = new FileReader();\r\n                fr.onloadend = function () {\r\n                    var result = this.result;\r\n                    var hex = \"\";\r\n                    var i=0;\r\n                    var posWrite = 0;\r\n                    for (; i < this.result.length; i++) {\r\n                        var byteStr = result.charCodeAt(i).toString(16);\r\n                        if (byteStr.length < 2) {\r\n                            byteStr = \"0\" + byteStr;\r\n                        }\r\n                        hex += byteStr;\r\n                        if ((i % 2048)==2047) {\r\n                            const http = new XMLHttpRequest()\r\n\r\n                            http.open(\"GET\", \"/upload/\"+(posWrite)+\"/\"+hex,false)\r\n                            http.send()\r\n                            http.onload = () => console.log(http.responseText)\r\n                            if (http.status!=200) {\r\n                                alert(\"Upload failed! \"+http.status)\r\n                                return\r\n                            }\r\n                            hex = \"\"\r\n                            document.getElementById(\"progress\").innerHTML = \"Bytes submitted: \"+(i);\r\n                            posWrite += 2048;\r\n                        }\r\n                    }\r\n                    \r\n                    // Last round\r\n                    const http = new XMLHttpRequest()\r\n                    http.open(\"GET\", \"/upload/\"+(posWrite)+\"/\"+hex,false)\r\n                    http.send()\r\n                    http.onload = () => console.log(http.responseText)\r\n                    if (http.status!=200) {\r\n                        alert(\"Upload failed! \"+http.status)\r\n                        return\r\n                    }                    \r\n                    document.getElementById(\"progress\").innerHTML = \"All Bytes submitted!\";\r\n                    alert(\"Upload finished\");\r\n                    \r\n                };\r\n                fr.readAsBinaryString(this.files[0]);\r\n            };\r\n        </script>\r\n        <div id=\"progress\"/> </div>\r\n    </body>\r\n    </html>\r\n\r\n");
-              
-              
+
+
               // The HTTP response ends with another blank line
               client.println();
               // Break out of the while loop
@@ -558,7 +725,7 @@ void loop() {
             }
           } else { // if you got a newline, then clear currentLine
             currentLine = "";
-          }        
+          }
         } else if (c != '\r') {  // if you got anything else but a carriage return character,
           currentLine += c;      // add it to the end of the currentLine
         }
